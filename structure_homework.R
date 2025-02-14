@@ -39,6 +39,10 @@ load("rs_data.RData")
 
 #ANSWER
 
+rs_joined_orig <- full_join(rs_new, rs_old, by = c("Artist", "Song"))
+nrow(rs_joined_orig)
+View(rs_joined_orig)
+# Answer to your questions: There are 860 rows. In the merge, the problems I see are that there is a lot of missing data (lots of NAs) and that is probably because the name of the columns in the joined dataset do not match the column names in the rs_new and the rs_old data set. Perhaps matching the names of the columns would give us more data in the year column. 
 
 
 ### Question 2 ---------- 
@@ -50,6 +54,16 @@ load("rs_data.RData")
 # Make Rank and Year into integer variables for rs_old before binding them into rs_all
 
 #ANSWER
+
+rs_new <- rs_new %>% mutate(Source = "New")
+rs_old <- rs_old %>% mutate(Source = "Old")
+
+rs_old <- rs_old %>%
+  mutate(Rank = as.integer(Rank),
+         Year = as.integer(Year))
+rs_all <- bind_rows(rs_new, rs_old)
+str(rs_all)
+View(rs_all)
 
 
 ### Question 3 ----------
@@ -63,6 +77,24 @@ load("rs_data.RData")
 
 #ANSWER
 
+cleaned_data <- function(text) {
+  text %>%
+    str_remove_all("\\bThe\\b") %>%  
+    str_replace_all("&", "and") %>%  
+    str_remove_all("[[:punct:]]") %>% 
+    str_to_lower() %>%               
+    str_trim()                        
+}
+rs_new <- rs_new %>%
+  mutate(Artist = cleaned_data(Artist),
+         Song = cleaned_data(Song))
+rs_old <- rs_old %>%
+  mutate(Artist = cleaned_data(Artist),
+         Song = cleaned_data(Song))
+rs_joined_clean <- full_join(rs_new, rs_old, by = c("Artist", "Song"))
+nrow(rs_joined_clean)
+View(rs_joined_clean)
+
 
 ### Question 4 ----------
 
@@ -75,6 +107,11 @@ load("rs_data.RData")
 # in the new rs_joined compared to the original. Use nrow to check (there should be 799 rows)
 
 #ANSWER
+rs_old_clean <- rs_all %>% filter(Source == "Old") %>% select(-Source) %>% head(500)
+rs_new_clean <- rs_all %>% filter(Source == "New") %>% select(-Source) %>% head(500)
+rs_joined <- full_join(rs_old_clean, rs_new_clean, by = c("Artist", "Song"), suffix = c("_Old", "_New"))
+nrow(rs_joined) 
+View(rs_joined)
 
 
 ### Question 5 ----------
@@ -88,6 +125,23 @@ load("rs_data.RData")
 # You should now be able to see how each song moved up/down in rankings between the two lists
 
 #ANSWER
+rs_joined <- rs_joined %>%
+  select(-Source) %>%                   
+  filter(!is.na(Rank_New) & !is.na(Rank_Old)) %>%  
+  mutate(Rank_Change = Rank_Old - Rank_New) %>%   
+  arrange(desc(Rank_Change))
+rs_joined
+View(rs_joined)
+
+#second try because I am getting an error on the first one
+
+rs_joined <- rs_joined %>%
+  filter(!is.na(Rank_New) & !is.na(Rank_Old)) %>%  
+  mutate(Rank_Change = Rank_Old - Rank_New) %>%    
+  arrange(desc(Rank_Change))                       
+View(rs_joined)
+
+#yes! That last code did work!!! 
 
 
 ### Question 6 ----------
@@ -99,8 +153,13 @@ load("rs_data.RData")
 # Which decade improved the most?
 
 #ANSWER
-
-
+rs_joined <- rs_joined %>%
+  mutate(Decade = factor(floor(Year_Old / 10) * 10, levels = seq(min(floor(Year_Old / 10) * 10), max(floor(Year_Old / 10) * 10), 10))) %>%
+  mutate(Decade = paste0(Decade, "s"))  
+rs_joined %>%
+  group_by(Decade) %>%
+  summarize(mean_rank_change = mean(Rank_Change, na.rm = TRUE)) %>%
+  arrange(desc(mean_rank_change)) 
 
 ### Question 7 ----------
 
@@ -110,8 +169,18 @@ load("rs_data.RData")
 # proportion of songs in each of the top three decades (vs. all the rest)
 
 #ANSWER
-
-
+rs_joined <- rs_joined %>%
+  mutate(Decade = factor(Decade))
+rs_joined %>%
+  pull(Decade) %>%             
+  fct_count() %>%
+  arrange(desc(n))  
+rs_joined <- rs_joined %>%
+  mutate(Decade = fct_lump(Decade, n = 3))  
+rs_joined %>%
+  pull(Decade) %>%          
+  fct_count(prop = TRUE) %>%
+  arrange(desc(n))
 
 ### Question 8 ---------- 
 
@@ -120,7 +189,14 @@ load("rs_data.RData")
 # Use parse_date_time to fix it
 
 #ANSWER
+library(dplyr)
+library(readr)
+library(lubridate)
 
+top_20 <- read_csv("top_20.csv")
+top20 <- top_20 %>%
+  mutate(Release = parse_date_time(Release, orders = c("dmy", "mdy", "ymd")))
+head(top20)
 
 ### Question 9 --------
 
@@ -130,6 +206,9 @@ load("rs_data.RData")
 
 #ANSWER
 
+top20 <- top20 %>%
+  pivot_wider(names_from = Style, values_from = Value)
+head(top20)
 
 
 ### Question 10 ---------
@@ -143,6 +222,33 @@ load("rs_data.RData")
 # Count the number of songs that were released in each season
 
 #ANSWER
+library(dplyr)
+library(lubridate)
+
+top20 <- top20 %>%
+  left_join(rs_joined, by = c("Artist" = "Artist", "Song" = "Song"))
+
+top20 <- top20 %>%
+  mutate(
+    Release_Month = factor(month(Release, label = TRUE, abbr = FALSE), 
+                           levels = month.name)
+  )
+
+top20 <- top20 %>%
+  mutate(
+    season = case_when(
+      Release_Month %in% c("December", "January", "February") ~ "Winter",
+      Release_Month %in% c("March", "April", "May") ~ "Spring",
+      Release_Month %in% c("June", "July", "August") ~ "Summer",
+      Release_Month %in% c("September", "October", "November") ~ "Fall",
+      TRUE ~ NA_character_  
+    )
+  )
+
+season_count <- top20 %>%
+  count(season)
+season_count
+
 
 
 
@@ -154,6 +260,12 @@ load("rs_data.RData")
 # Figure out which is the top-ranked song (from Rank_New) that used a minor key
 
 #ANSWER
+top_minor_song <- top20 %>%
+  filter(Quality == "Minor") %>%
+  arrange(Rank_New) %>%  
+  slice(1) 
+quality_count
+top_minor_song
 
 
 
